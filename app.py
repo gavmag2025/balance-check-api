@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
 import requests
 from bs4 import BeautifulSoup
+import os
 
 app = Flask(__name__)
 
@@ -10,8 +11,8 @@ IBIS_LOGIN = f"{IBIS_BASE}/Account/Login?ReturnUrl=%2F"
 SIMCARDS_SIMPLE = f"{IBIS_BASE}/SimcardsSimple.aspx"
 
 # In production, store these in Render env vars
-USERNAME = "your-ibis-username"
-PASSWORD = "your-ibis-password"
+USERNAME = os.getenv("gmagid")
+PASSWORD = os.getenv("(Torah613)")
 
 
 # --- Login helper ---
