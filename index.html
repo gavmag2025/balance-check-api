@@ -30,7 +30,7 @@
       resultEl.innerHTML = "Checking...";
 
       try {
-        const response = await fetch("https://gavmag.pythonanywhere.com/check-balance", {
+        const response = await fetch("https://balance-check-api.onrender.com/check-balance", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ number }),
