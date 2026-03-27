@@ -3,67 +3,69 @@ import os
 import requests
 from bs4 import BeautifulSoup
 import urllib.parse
+import time
 
 app = Flask(__name__)
 
 IBIS_USERNAME = os.environ.get('IBIS_USERNAME')
 IBIS_PASSWORD = os.environ.get('IBIS_PASSWORD')
 LOGIN_URL = 'https://ibisglobalbeam.satcomhost.com/Account/Login?ReturnUrl=%2FWelcome.aspx'
-DASHBOARD_URL = 'https://ibisglobalbeam.satcomhost.com/Welcome.aspx'
+HOME_URL = 'https://ibisglobalbeam.satcomhost.com/'
 
 @app.route('/')
 def home():
-    return "IsatPhone Balance Check API v2.0 - LIVE!"
+    return "IsatPhone Balance Check API - READY!"
 
 @app.route('/check-balance', methods=['GET', 'POST'])
 def check_balance():
     iccid_msisdn = request.args.get('msisdn')
     
     if not iccid_msisdn:
-        return jsonify({'error': 'msisdn= required'}), 400
+        return jsonify({'error': '?msisdn= required'}), 400
     
     if not IBIS_USERNAME or not IBIS_PASSWORD:
-        return jsonify({'error': 'Set IBIS_USERNAME & IBIS_PASSWORD env vars'}), 500
+        return jsonify({'error': 'IBIS_USERNAME & IBIS_PASSWORD env vars missing'}), 500
     
     try:
         session = requests.Session()
         session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Referer': HOME_URL
         })
         
-        # STEP 1: LOGIN (EXACT URL from you)
+        # 1. LOGIN
         login_data = {
             'username': IBIS_USERNAME,
             'password': IBIS_PASSWORD,
             'Login': 'Login'
         }
-        login_response = session.post(LOGIN_URL, data=login_data, allow_redirects=True)
+        session.post(LOGIN_URL, data=login_data)
+        time.sleep(2)
         
-        if DASHBOARD_URL not in login_response.url and 'Welcome' not in login_response.text:
-            return jsonify({'error': 'Login failed', 'url': login_response.url}), 401
+        # 2. Go to SIM table
+        home_response = session.get(HOME_URL)
+        time.sleep(1)
         
-        # STEP 2: Go to SIM dashboard & search ICCID
-        dashboard_response = session.get(DASHBOARD_URL)
-        soup = BeautifulSoup(dashboard_response.text, 'html.parser')
-        
-        # STEP 3: DevExpress grid search (your exact field)
+        # 3. EXACT DevExpress search (from your screenshots)
         search_data = {
             'ctl00$ContentPlaceHolder1$gvSIMCards$DXFREditorcol0': iccid_msisdn,
             '__CALLBACKID': 'ctl00_ContentPlaceHolder1_gvSIMCards',
-            '__CALLBACKPARAM': f'PnlFilter%2CCallbackRowValues%7C0%7C{urllib.parse.quote(iccid_msisdn)}'
+            '__CALLBACKPARAM': f'PnlFilter%2CCallbackRowValues%7C0%7C{urllib.parse.quote_plus(iccid_msisdn)}%7C%7C',
+            '__VIEWSTATE': BeautifulSoup(home_response.text, 'html.parser').select_one('#__VIEWSTATE')['value'] if BeautifulSoup(home_response.text, 'html.parser').select_one('#__VIEWSTATE') else '',
         }
         
-        search_response = session.post(DASHBOARD_URL, data=search_data, timeout=15)
+        search_response = session.post(HOME_URL, data=search_data, timeout=15)
         soup = BeautifulSoup(search_response.text, 'html.parser')
         
-        # STEP 4: EXTRACT RESULTS (your exact selectors)
-        balance_elem = soup.select_one('td.dxgv[align="right"]')
-        expiry_elem = soup.select_one('td.dxgv[style*="border-right-width:0px"]')
+        # 4. YOUR EXACT SELECTORS
+        balance_elems = soup.select('td.dxgv[align="right"]')
+        expiry_elems = soup.select('td.dxgv[style*="border-right-width:0px"]')
         
         result = {
             'iccid_msisdn': iccid_msisdn,
-            'balance': balance_elem.text.strip() if balance_elem else 'No balance found',
-            'expiry': expiry_elem.text.strip() if expiry_elem else 'No expiry found',
+            'balance': balance_elems[0].text.strip() if balance_elems else 'No balance found',
+            'expiry': expiry_elems[0].text.strip() if expiry_elems else 'No expiry found',
+            'rows_found': len(soup.select('tr.dxgvDataRow')),
             'status': 'success'
         }
         
