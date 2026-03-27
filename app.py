@@ -5,24 +5,25 @@ from bs4 import BeautifulSoup
 import urllib.parse
 
 app = Flask(__name__)
-import os  # ← Make sure this is at top
 
-# Use Environment variables (secure)
+# Get credentials from Environment vars
 IBIS_USERNAME = os.environ.get('IBIS_USERNAME')
 IBIS_PASSWORD = os.environ.get('IBIS_PASSWORD')
-IBIS_URL = 'https://ibisglobalbeam.satcomhost.com'
+IBIS_BASE_URL = 'https://ibisglobalbeam.satcomhost.com'
 
-if not IBIS_USERNAME or not IBIS_PASSWORD:
-    print("ERROR: Set IBIS_USERNAME and IBIS_PASSWORD in Render Environment")@app.route('/')
+@app.route('/')
 def home():
     return "IsatPhone Balance Check API - LIVE!"
 
 @app.route('/check-balance', methods=['GET', 'POST'])
 def check_balance():
-    iccid_msisdn = request.args.get('msisdn') or request.json.get('msisdn')
+    iccid_msisdn = request.args.get('msisdn')
     
     if not iccid_msisdn:
-        return jsonify({'error': 'ICCID/MSISDN required'}), 400
+        return jsonify({'error': 'msisdn parameter required'}), 400
+    
+    if not IBIS_USERNAME or not IBIS_PASSWORD:
+        return jsonify({'error': 'IBIS credentials missing'}), 500
     
     try:
         session = requests.Session()
@@ -30,42 +31,42 @@ def check_balance():
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         })
         
-        # STEP 1: LOGIN to IBIS
+        # STEP 1: CORRECT LOGIN (from your screenshot)
         login_data = {
-            'txtUsername': IBIS_USERNAME,
-            'txtPassword': IBIS_PASSWORD,
-            'btnLogin': 'Login'
+            'username': IBIS_USERNAME,    # ← FIXED
+            'password': IBIS_PASSWORD,    # ← FIXED
+            'Login': 'Login'              # ← Button value
         }
-        login_response = session.post(f'{IBIS_URL}/Login.aspx', data=login_data)
+        login_response = session.post(IBIS_BASE_URL, data=login_data)
         
-        if 'Dashboard' not in login_response.text:
-            return jsonify({'error': 'Login failed'}), 401
+        if 'Dashboard' not in login_response.text and 'welcome' not in login_response.text.lower():
+            return jsonify({'error': 'IBIS login failed'}), 401
         
-        # STEP 2: Submit ICCID in SIM table
+        # STEP 2: Submit ICCID (DevExpress grid callback)
         form_data = {
             'ctl00$ContentPlaceHolder1$gvSIMCards$DXFREditorcol0': iccid_msisdn,
             '__CALLBACKID': 'ctl00_ContentPlaceHolder1_gvSIMCards',
             '__CALLBACKPARAM': f'PnlFilter%2CCallbackRowValues%7C0%7C{urllib.parse.quote(iccid_msisdn)}'
         }
         
-        response = session.post(f'{IBIS_URL}/Default.aspx', data=form_data, timeout=15)
+        response = session.post(f'{IBIS_BASE_URL}/Default.aspx', data=form_data, timeout=15)
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # STEP 3: Extract results
+        # STEP 3: EXACT SELECTORS (from your earlier screenshot)
         balance_elem = soup.select_one('td.dxgv[align="right"]')
         expiry_elem = soup.select_one('td.dxgv[style*="border-right-width:0px"]')
         
         result = {
             'iccid_msisdn': iccid_msisdn,
-            'balance': balance_elem.text.strip() if balance_elem else 'Not found',
-            'expiry': expiry_elem.text.strip() if expiry_elem else 'Not found',
+            'balance': balance_elem.text.strip() if balance_elem else 'Login may be required',
+            'expiry': expiry_elem.text.strip() if expiry_elem else 'Login may be required',
             'status': 'success'
         }
         
         return jsonify(result)
         
     except Exception as e:
-        return jsonify({'error': f'Error: {str(e)}'}), 500
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/health')
 def health():
