@@ -5,13 +5,15 @@ from bs4 import BeautifulSoup
 import urllib.parse
 
 app = Flask(__name__)
+import os  # ← Make sure this is at top
 
-# IBIS CREDENTIALS - UPDATE THESE
-IBIS_USERNAME = 'gmagid'
-IBIS_PASSWORD = '(Torah613)'
+# Use Environment variables (secure)
+IBIS_USERNAME = os.environ.get('IBIS_USERNAME')
+IBIS_PASSWORD = os.environ.get('IBIS_PASSWORD')
 IBIS_URL = 'https://ibisglobalbeam.satcomhost.com'
 
-@app.route('/')
+if not IBIS_USERNAME or not IBIS_PASSWORD:
+    print("ERROR: Set IBIS_USERNAME and IBIS_PASSWORD in Render Environment")@app.route('/')
 def home():
     return "IsatPhone Balance Check API - LIVE!"
 
