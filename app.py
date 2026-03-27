@@ -1,56 +1,58 @@
 from flask import Flask, request, jsonify
 import os
-import requests  # ← ADD THIS
+import requests
+from bs4 import BeautifulSoup
+import time
+import urllib.parse
 
 app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Balance Check API is running!"
+    return "IsatPhone Balance Check API - LIVE!"
 
 @app.route('/check-balance', methods=['GET', 'POST'])
 def check_balance():
-    # Get MSISDN/ICCID from query params or body
-    if request.method == 'POST':
-        msisdn = request.json.get('msisdn') if request.json else None
-    else:
-        msisdn = request.args.get('msisdn')
+    iccid_msisdn = request.args.get('msisdn') or request.json.get('msisdn') if request.json else None
     
-    if not msisdn:
-        return jsonify({'error': 'MSISDN/ICCID required'}), 400
+    if not iccid_msisdn:
+        return jsonify({'error': 'ICCID/MSISDN required'}), 400
     
-    # === REAL IBIS INTEGRATION (REPLACE THIS SECTION) ===
     try:
-        # UPDATE THESE 4 LINES WITH YOUR IBIS DETAILS:
-        ibis_response = requests.post(
-            'https://YOUR_IBIS_ENDPOINT.co.za/balance',  # ← Your URL
-            headers={
-                'Authorization': 'Bearer YOUR_API_KEY_HERE',  # ← Your auth
-                'Content-Type': 'application/json'
-            },
-            json={'msisdn': msisdn}  # ← Your request format
-        )
-        ibis_data = ibis_response.json()
-        
-        return jsonify({
-            'msisdn': msisdn,
-            'balance': ibis_data['balance'],           # ← Adjust field name
-            'expiry': ibis_data['expiry_date'],        # ← Adjust field name
-            'status': ibis_data.get('status', 'active')
+        session = requests.Session()
+        session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         })
         
-    except requests.exceptions.RequestException as e:
-        return jsonify({'error': f'IBIS API failed: {str(e)}'}), 502
-    except KeyError as e:
-        return jsonify({'error': f'Missing IBIS field: {str(e)}'}), 500
-    
-    # === TEMP DUMMY DATA (REMOVE AFTER IBIS WORKS) ===
-    # return jsonify({
-    #     'msisdn': msisdn,
-    #     'balance': f'R{round(10 + (hash(msisdn) % 1000) / 100, 2)}',
-    #     'expiry': '2026-12-31',
-    #     'status': 'active'
-    # })
+        # IBIS form submission
+        form_data = {
+            'ctl00$ContentPlaceHolder1$gvSIMCards$DXFREditorcol0': iccid_msisdn,
+            '__CALLBACKID': 'ctl00_ContentPlaceHolder1_gvSIMCards',
+            '__CALLBACKPARAM': f'PnlFilter%2CCallbackRowValues%7C0%7C{urllib.parse.quote(iccid_msisdn)}'
+        }
+        
+        # POST to IBIS (from your Network tab)
+        url = 'https://ibisglobalbeam.satcomhost.com/Default.aspx'
+        response = session.post(url, data=form_data, timeout=15)
+        
+        # Parse results table
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # Extract balance & expiry (EXACT selectors from your screenshot)
+        balance_elem = soup.select_one('td.dxgv[align="right"]')
+        expiry_elem = soup.select_one('td.dxgv[style*="border-right-width:0px"]')
+        
+        result = {
+            'iccid_msisdn': iccid_msisdn,
+            'balance': balance_elem.text.strip() if balance_elem else 'Not found',
+            'expiry': expiry_elem.text.strip() if expiry_elem else 'Not found',
+            'status': 'success'
+        }
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        return jsonify({'error': f'IBIS scrape failed: {str(e)}'}), 500
 
 @app.route('/health')
 def health():
@@ -59,4 +61,3 @@ def health():
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
-
