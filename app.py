@@ -2,10 +2,14 @@ from flask import Flask, request, jsonify
 import os
 import requests
 from bs4 import BeautifulSoup
-import time
 import urllib.parse
 
 app = Flask(__name__)
+
+# IBIS CREDENTIALS - UPDATE THESE
+IBIS_USERNAME = 'gmagid'
+IBIS_PASSWORD = '(Torah613)'
+IBIS_URL = 'https://ibisglobalbeam.satcomhost.com'
 
 @app.route('/')
 def home():
@@ -13,7 +17,7 @@ def home():
 
 @app.route('/check-balance', methods=['GET', 'POST'])
 def check_balance():
-    iccid_msisdn = request.args.get('msisdn') or request.json.get('msisdn') if request.json else None
+    iccid_msisdn = request.args.get('msisdn') or request.json.get('msisdn')
     
     if not iccid_msisdn:
         return jsonify({'error': 'ICCID/MSISDN required'}), 400
@@ -21,24 +25,31 @@ def check_balance():
     try:
         session = requests.Session()
         session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         })
         
-        # IBIS form submission
+        # STEP 1: LOGIN to IBIS
+        login_data = {
+            'txtUsername': IBIS_USERNAME,
+            'txtPassword': IBIS_PASSWORD,
+            'btnLogin': 'Login'
+        }
+        login_response = session.post(f'{IBIS_URL}/Login.aspx', data=login_data)
+        
+        if 'Dashboard' not in login_response.text:
+            return jsonify({'error': 'Login failed'}), 401
+        
+        # STEP 2: Submit ICCID in SIM table
         form_data = {
             'ctl00$ContentPlaceHolder1$gvSIMCards$DXFREditorcol0': iccid_msisdn,
             '__CALLBACKID': 'ctl00_ContentPlaceHolder1_gvSIMCards',
             '__CALLBACKPARAM': f'PnlFilter%2CCallbackRowValues%7C0%7C{urllib.parse.quote(iccid_msisdn)}'
         }
         
-        # POST to IBIS (from your Network tab)
-        url = 'https://ibisglobalbeam.satcomhost.com/Default.aspx'
-        response = session.post(url, data=form_data, timeout=15)
-        
-        # Parse results table
+        response = session.post(f'{IBIS_URL}/Default.aspx', data=form_data, timeout=15)
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Extract balance & expiry (EXACT selectors from your screenshot)
+        # STEP 3: Extract results
         balance_elem = soup.select_one('td.dxgv[align="right"]')
         expiry_elem = soup.select_one('td.dxgv[style*="border-right-width:0px"]')
         
@@ -52,7 +63,7 @@ def check_balance():
         return jsonify(result)
         
     except Exception as e:
-        return jsonify({'error': f'IBIS scrape failed: {str(e)}'}), 500
+        return jsonify({'error': f'Error: {str(e)}'}), 500
 
 @app.route('/health')
 def health():
